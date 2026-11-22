@@ -84,9 +84,7 @@ body.intro .hero-bg,body.intro .slides-ui{opacity:0;pointer-events:none}
 
 /* intro */
 .loader{position:absolute;inset:0;z-index:5;pointer-events:none;transition:opacity .6s}
-.loader .num{position:absolute;right:max(5vw,16px);bottom:24px;font:700 clamp(80px,16vw,190px)/.85 var(--serif);color:var(--ink)}
 .loader .lbl{position:absolute;left:50%;bottom:22%;transform:translateX(-50%);font-size:14px;color:var(--muted);white-space:nowrap}
-.loader .lbl b{color:var(--gold)}
 body.intro .loader{opacity:1}
 body:not(.intro) .loader{opacity:0}
 body.intro header.site,body.intro .hero-copy,body.intro .today,body.intro .hint{opacity:0;pointer-events:none}
@@ -231,8 +229,7 @@ footer a:hover{color:var(--gold)}
   <div class="bubbles" id="bubbles" aria-hidden="true"></div>
   <canvas id="gl" aria-label="Caneca de chope em 3D. Arraste para girar."></canvas>
   <div class="loader" aria-hidden="true">
-    <div class="lbl">Tirando o chope <b id="lblN">0/100</b></div>
-    <div class="num" id="num">0</div>
+    <div class="lbl">Tirando o chope...</div>
   </div>
   <aside class="today" id="today">
     <div class="st" id="st"><i></i><span>...</span></div>
@@ -589,68 +586,134 @@ document.getElementById('next').addEventListener('click', () => { vai(fi + 1); i
 document.addEventListener('visibilitychange', () => document.hidden ? clearInterval(ftimer) : inicia());
 inicia();
 
-/* ---------- caneca 3D ---------- */
+/* ---------- caneca de chope 3D ---------- */
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const endIntro = () => document.body.classList.remove('intro');
-const numEl = document.getElementById('num'), lblN = document.getElementById('lblN');
 try {
   if (!window.THREE) throw new Error('sem three');
   const T = THREE, cv = document.getElementById('gl');
   const R = new T.WebGLRenderer({canvas:cv, antialias:true, alpha:true});
   R.setPixelRatio(Math.min(devicePixelRatio, 2));
   R.outputEncoding = T.sRGBEncoding;
+  R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.15;
   const scene = new T.Scene(), cam = new T.PerspectiveCamera(32, 1, .1, 100);
   cam.position.set(0, .5, 13);
-  scene.add(new T.AmbientLight(0xffffff, .45));
-  const key = new T.DirectionalLight(0xffe2b0, 1.0); key.position.set(4, 6, 6); scene.add(key);
-  const rim = new T.PointLight(0x5bd3ac, 1.6, 30); rim.position.set(-5, 2, -3); scene.add(rim);
-  const warm = new T.PointLight(0xff9a2a, .8, 12); warm.position.set(0, 0, 2.5); scene.add(warm);
+
+  // ambiente invisível só para o vidro refletir luz (janela, luminárias, menta da marca)
+  const envS = new T.Scene(); envS.background = new T.Color(0x0b0f0e);
+  const painel = (w, h, c, k, x, y, z, ry, rx) => { const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({color:new T.Color(c).multiplyScalar(k), side:T.DoubleSide})); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); envS.add(m); };
+  painel(10, 2, 0xfff1d6, 3, 0, 6, 0, 0, Math.PI / 2);
+  painel(1.2, 8, 0xffffff, 4, -5, 0, 2, Math.PI / 2);
+  painel(1.2, 8, 0xffffff, 2.5, 5, 0, 1, -Math.PI / 2);
+  painel(6, 4, 0x5bd3ac, 1.2, 0, 0, -6, 0);
+  painel(6, 3, 0xffb050, 1.5, 0, -1, 6, Math.PI);
+  const pmrem = new T.PMREMGenerator(R);
+  scene.environment = pmrem.fromScene(envS, .04).texture;
+
+  scene.add(new T.AmbientLight(0xffffff, .3));
+  const key = new T.DirectionalLight(0xfff0d8, 1.2); key.position.set(4, 6, 6); scene.add(key);
+  const rim = new T.PointLight(0x5bd3ac, 1.2, 30); rim.position.set(-5, 2, -3); scene.add(rim);
+  const back = new T.PointLight(0xffc060, 1.4, 12); back.position.set(0, .5, -3); scene.add(back);
 
   const mug = new T.Group(), rig = new T.Group(); rig.add(mug); scene.add(rig);
-  // vidro (perfil girado)
-  const prof = [[0,-1.62],[1.13,-1.62],[1.2,-1.52],[1.3,1.62],[1.23,1.62],[1.13,-1.38],[0,-1.38]].map(p => new T.Vector2(p[0], p[1]));
-  const glassM = new T.MeshPhysicalMaterial({color:0xffffff, transparent:true, opacity:0, roughness:.05, metalness:0, clearcoat:1, side:T.DoubleSide, depthWrite:false});
-  const glass = new T.Mesh(new T.LatheGeometry(prof, 64), glassM); mug.add(glass);
-  const handleM = glassM.clone();
-  const handle = new T.Mesh(new T.TorusGeometry(.78, .17, 18, 48, Math.PI), handleM);
-  handle.rotation.z = -Math.PI / 2; handle.position.set(1.28, .05, 0); mug.add(handle);
-  // chope
-  const beerM = new T.MeshStandardMaterial({color:0xb8690a, emissive:0x4a2200, emissiveIntensity:.5, roughness:.2, transparent:true, opacity:.95});
-  const beer = new T.Mesh(new T.CylinderGeometry(1.12, 1.07, 2.7, 56), beerM);
-  beer.geometry.translate(0, 1.35, 0); beer.position.y = -1.36; beer.scale.y = .001; mug.add(beer);
-  // espuma
-  const foam = new T.Group(); foam.position.y = 1.36; mug.add(foam);
-  const foamM = new T.MeshStandardMaterial({color:0xfff5e2, roughness:.95});
-  foam.add(new T.Mesh(new T.CylinderGeometry(1.2, 1.13, .34, 56), foamM));
-  const sph = new T.SphereGeometry(1, 16, 12);
-  for (let i = 0; i < 38; i++) {
-    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 1.02, s = .2 + Math.random() * .2;
-    const b = new T.Mesh(sph, foamM); b.scale.setScalar(s); b.position.set(Math.cos(a) * r, .14 + Math.random() * .12 + (1.05 - r) * .25, Math.sin(a) * r); foam.add(b);
-  }
-  foam.scale.setScalar(.001);
-  // bolhas
-  const NB = 70, bubM = new T.MeshBasicMaterial({color:0xfff2c8, transparent:true, opacity:.7});
-  const bubs = new T.InstancedMesh(new T.SphereGeometry(.035, 8, 6), bubM, NB); mug.add(bubs);
-  const bd = Array.from({length:NB}, () => ({a:Math.random() * 6.28, r:Math.random() * .95, y:Math.random() * 2.7, v:.4 + Math.random() * .7}));
-  const dummy = new T.Object3D();
 
-  // partículas da entrada: pontos na forma da caneca
+  // vidro grosso: parede e fundo
+  const prof = [[0,-1.65],[1.05,-1.65],[1.12,-1.6],[1.25,1.62],[1.27,1.66],[1.21,1.66],[1.19,1.6],[1.07,-1.25],[1.0,-1.3],[0,-1.3]].map(p => new T.Vector2(p[0], p[1]));
+  const bodyGeo = new T.LatheGeometry(prof, 96);
+  const glassM = new T.MeshPhysicalMaterial({color:0xffffff, metalness:0, roughness:.04, clearcoat:1, clearcoatRoughness:.02, envMapIntensity:2.2, transparent:true, opacity:0, side:T.DoubleSide, depthWrite:false});
+  // brilho nas bordas do vidro (fresnel)
+  const fresM = new T.ShaderMaterial({
+    uniforms:{uO:{value:0}}, transparent:true, depthWrite:false, side:T.DoubleSide,
+    vertexShader:'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+    fragmentShader:'uniform float uO; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 3.0); gl_FragColor = vec4(vec3(1.0,0.98,0.95), (f * 0.8 + 0.02) * uO); }'
+  });
+  const glass = new T.Mesh(bodyGeo, glassM), glassF = new T.Mesh(bodyGeo, fresM);
+  glass.renderOrder = 2; glassF.renderOrder = 3; mug.add(glass, glassF);
+  const handleGeo = new T.TorusGeometry(.78, .2, 24, 64, Math.PI);
+  const handle = new T.Mesh(handleGeo, glassM), handleF = new T.Mesh(handleGeo, fresM);
+  [handle, handleF].forEach((h, i) => { h.rotation.z = -Math.PI / 2; h.position.set(1.32, .05, 0); h.renderOrder = 2 + i; mug.add(h); });
+
+  // chope: mais escuro no fundo, mais claro em cima, bordas mais fortes e um reflexo de luz
+  const BH = 2.25, BASE = -1.28;
+  const beerGeo = new T.CylinderGeometry(1.15, 1.06, BH, 72, 1); beerGeo.translate(0, BH / 2, 0);
+  const beerM = new T.ShaderMaterial({
+    uniforms:{uO:{value:.93}}, transparent:true,
+    vertexShader:'varying float vY; varying vec3 vN; varying vec3 vV; void main(){ vY = position.y / ' + BH.toFixed(2) + '; vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+    fragmentShader:'uniform float uO; varying float vY; varying vec3 vN; varying vec3 vV; void main(){ vec3 n = normalize(vN), v = normalize(vV); vec3 c = mix(vec3(0.78,0.47,0.09), vec3(0.98,0.82,0.36), smoothstep(0.0, 1.0, vY)); float f = pow(1.0 - abs(dot(n, v)), 2.0); c = mix(c, vec3(0.55,0.28,0.04), f * 0.6); c += vec3(1.0,0.85,0.5) * pow(max(0.0, dot(n, v)), 3.0) * 0.22; c += vec3(1.0,0.96,0.85) * smoothstep(0.12, 0.0, abs(n.x + 0.45)) * 0.32; gl_FragColor = vec4(c, uO); }'
+  });
+  const beer = new T.Mesh(beerGeo, beerM); beer.position.y = BASE; beer.scale.y = .001; beer.renderOrder = 1; mug.add(beer);
+
+  // espuma cremosa: textura de bolhinhas, mais amarelada embaixo, domo passando da borda
+  const fc = document.createElement('canvas'); fc.width = fc.height = 256;
+  const fg = fc.getContext('2d'); fg.fillStyle = '#efe6d4'; fg.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) { const x = Math.random() * 256, y = Math.random() * 256, r = .8 + Math.pow(Math.random(), 3) * 5; fg.strokeStyle = 'rgba(170,150,110,' + (.35 + Math.random() * .35) + ')'; fg.lineWidth = .7; fg.beginPath(); fg.arc(x, y, r, 0, 6.28); fg.stroke(); fg.fillStyle = 'rgba(255,255,255,.7)'; fg.beginPath(); fg.arc(x - r * .3, y - r * .3, r * .35, 0, 6.28); fg.fill(); }
+  const foamTex = new T.CanvasTexture(fc); foamTex.wrapS = foamTex.wrapT = T.RepeatWrapping; foamTex.repeat.set(3, 1.5); foamTex.encoding = T.sRGBEncoding;
+  const foamM = new T.MeshStandardMaterial({map:foamTex, bumpMap:foamTex, bumpScale:.06, roughness:.9, vertexColors:true, color:0xe9e2d4});
+  const FT = BASE + BH;
+  const foam = new T.Group(); foam.position.y = FT; mug.add(foam);
+  const capGeo = new T.CylinderGeometry(1.2, 1.15, .8, 72, 6, true); capGeo.translate(0, .4, 0);
+  const domeGeo = new T.SphereGeometry(1.22, 72, 18, 0, Math.PI * 2, 0, Math.PI / 2); domeGeo.scale(1, .26, 1); domeGeo.translate(0, .8, 0);
+  [capGeo, domeGeo].forEach(g => {
+    const p = g.attributes.position, cols = [];
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i), x = p.getX(i), z = p.getZ(i), k = Math.min(1, y / .5);
+      if (y > .78) p.setY(i, y + .03 * Math.sin(x * 5 + z * 3) * Math.cos(z * 4 - x));
+      cols.push(1, .9 + .1 * k, .72 + .26 * k);
+    }
+    g.setAttribute('color', new T.Float32BufferAttribute(cols, 3)); g.computeVertexNormals();
+    foam.add(new T.Mesh(g, foamM));
+  });
+  const blobG = new T.SphereGeometry(1, 16, 12);
+  blobG.setAttribute('color', new T.Float32BufferAttribute(new Array(blobG.attributes.position.count * 3).fill(1), 3));
+  for (let i = 0; i < 22; i++) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * 1.0, s = .12 + Math.random() * .14; const b = new T.Mesh(blobG, foamM); b.scale.set(s, s * .7, s); b.position.set(Math.cos(a) * r, .86 + (1.05 - r) * .2, Math.sin(a) * r); foam.add(b); }
+  foam.scale.set(1, .001, 1);
+
+  // logo do Quintal pintado no vidro
+  const logoImg = document.querySelector('.brand img');
+  let logoM = null;
+  if (logoImg) {
+    const lt = new T.Texture(logoImg); lt.encoding = T.sRGBEncoding;
+    const upd = () => { lt.needsUpdate = true; };
+    logoImg.complete ? upd() : logoImg.addEventListener('load', upd);
+    logoM = new T.MeshBasicMaterial({map:lt, transparent:true, opacity:0, depthWrite:false, toneMapped:false});
+    const th = 1.62, logo = new T.Mesh(new T.CylinderGeometry(1.208, 1.19, .82, 48, 1, true, -th / 2, th), logoM);
+    logo.position.y = -.15; logo.renderOrder = 5; mug.add(logo);
+  }
+
+  // gotinhas de condensação (copo gelado)
+  const ND = 280, dropM = new T.MeshPhysicalMaterial({color:0xffffff, roughness:.05, metalness:0, clearcoat:1, envMapIntensity:2.5, transparent:true, opacity:0});
+  const drops = new T.InstancedMesh(new T.SphereGeometry(1, 10, 8), dropM, ND); drops.renderOrder = 4; mug.add(drops);
+  const dummy = new T.Object3D();
+  for (let i = 0; i < ND; i++) {
+    const a = Math.random() * 6.28, y = -1.55 + Math.random() * 2.35, r = 1.12 + (y + 1.6) / 3.22 * .13 + .012, s = .012 + Math.pow(Math.random(), 2.5) * .035;
+    dummy.position.set(Math.sin(a) * r, y, Math.cos(a) * r);
+    dummy.lookAt(Math.sin(a) * 9, y, Math.cos(a) * 9);
+    dummy.scale.set(s, s * 1.3, s * .45); dummy.updateMatrix(); drops.setMatrixAt(i, dummy.matrix);
+  }
+
+  // bolhas: fileiras saindo do fundo e algumas soltas
+  const NB = 110, bubM = new T.MeshBasicMaterial({color:0xfff6d8, transparent:true, opacity:.4});
+  const bubs = new T.InstancedMesh(new T.SphereGeometry(1, 8, 6), bubM, NB); bubs.renderOrder = 1; mug.add(bubs);
+  const fontes = Array.from({length:6}, () => { const a = Math.random() * 6.28, r = .2 + Math.random() * .7; return [Math.cos(a) * r, Math.sin(a) * r]; });
+  const bd = Array.from({length:NB}, (_, i) => { const f = i < 84 ? fontes[i % 6] : null, a = Math.random() * 6.28, r = Math.random() * .95; return {x:f ? f[0] : Math.cos(a) * r, z:f ? f[1] : Math.sin(a) * r, y:Math.random() * BH, v:f ? .9 : .4 + Math.random() * .5, w:Math.random() * 6.28}; });
+
+  // partículas da entrada: pontos no formato da caneca
   const NP = 2600, tgt = new Float32Array(NP * 3), src = new Float32Array(NP * 3), pos = new Float32Array(NP * 3), col = new Float32Array(NP * 3);
   const cGold = new T.Color(0xf6c86a), cAmb = new T.Color(0xe08a1e), cWhite = new T.Color(0xfff3dd), cMint = new T.Color(0x5bd3ac);
   for (let i = 0; i < NP; i++) {
     let x, y, z, c; const k = Math.random();
-    if (k < .62) { const yy = -1.6 + Math.random() * 3.2, a = Math.random() * 6.28, r = 1.18 + (yy + 1.6) / 3.2 * .1; x = Math.cos(a) * r; z = Math.sin(a) * r; y = yy; c = yy < 1.2 ? (Math.random() < .5 ? cGold : cAmb) : cWhite; }
-    else if (k < .78) { const t = Math.random() * Math.PI, a = Math.random() * 6.28; const cx = Math.sin(t) * .78, cy = Math.cos(t) * .78; x = 1.28 + cx + Math.cos(a) * .17 * Math.sin(t); y = .05 + cy + Math.sin(a) * .17; z = Math.cos(a) * .17; c = cMint; }
-    else { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * 1.15; x = Math.cos(a) * r; z = Math.sin(a) * r; y = 1.55 + Math.random() * .3; c = cWhite; }
+    if (k < .62) { y = -1.6 + Math.random() * 3.2; const a = Math.random() * 6.28, r = 1.13 + (y + 1.6) / 3.2 * .12; x = Math.cos(a) * r; z = Math.sin(a) * r; c = y < FT ? (Math.random() < .5 ? cGold : cAmb) : cWhite; }
+    else if (k < .78) { const t = Math.random() * Math.PI, a = Math.random() * 6.28; x = 1.32 + Math.sin(t) * .78 + Math.cos(a) * .2 * Math.sin(t); y = .05 + Math.cos(t) * .78 + Math.sin(a) * .2; z = Math.cos(a) * .2; c = cMint; }
+    else { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * 1.18; x = Math.cos(a) * r; z = Math.sin(a) * r; y = FT + .3 + Math.random() * .6; c = cWhite; }
     tgt.set([x, y, z], i * 3);
-    const u = Math.random() * 6.28, v = Math.acos(2 * Math.random() - 1), rr = 5 + Math.random() * 5;
-    src.set([Math.sin(v) * Math.cos(u) * rr, Math.cos(v) * rr * .6, Math.sin(v) * Math.sin(u) * rr], i * 3);
+    const u = Math.random() * 6.28, w = Math.acos(2 * Math.random() - 1), rr = 5 + Math.random() * 5;
+    src.set([Math.sin(w) * Math.cos(u) * rr, Math.cos(w) * rr * .6, Math.sin(w) * Math.sin(u) * rr], i * 3);
     col.set([c.r, c.g, c.b], i * 3);
   }
   pos.set(src);
   const pg = new T.BufferGeometry();
   pg.setAttribute('position', new T.BufferAttribute(pos, 3)); pg.setAttribute('color', new T.BufferAttribute(col, 3));
-  const pm = new T.PointsMaterial({size:.055, vertexColors:true, transparent:true, opacity:1, depthWrite:false, blending:T.AdditiveBlending});
+  const pm = new T.PointsMaterial({size:.055, vertexColors:true, transparent:true, opacity:1, depthWrite:false, blending:T.AdditiveBlending, toneMapped:false});
   const pts = new T.Points(pg, pm); mug.add(pts);
 
   // tamanho e posição
@@ -669,8 +732,8 @@ try {
   addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX - lx; lx = e.clientX; vel = dx * .006; rotY += vel; });
 
   const ease = t => 1 - Math.pow(1 - t, 3);
-  const back = t => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
-  const LOAD = reduce ? 0 : 2.6;
+  const clamp = x => Math.min(Math.max(x, 0), 1);
+  const LOAD = reduce ? 0 : 2.4;
   let t0 = performance.now(), visible = true, done = false;
   const io = new IntersectionObserver(es => { visible = es[0].isIntersecting; }, {threshold:0}); io.observe(cv);
 
@@ -678,10 +741,9 @@ try {
     requestAnimationFrame(frame);
     if (!visible && done) return;
     const t = (now - t0) / 1000;
-    // 1) pontos se juntam
+    // 1) pontos se juntam no formato da caneca
     const p = LOAD ? Math.min(t / LOAD, 1) : 1, ep = ease(p);
-    if (!done) { const n = Math.round(p * 100); numEl.textContent = n; lblN.textContent = n + '/100'; }
-    if (pm.opacity > 0) {
+    if (pts.visible) {
       const sw = (1 - ep) * 2.2;
       for (let i = 0; i < NP; i++) {
         const j = i * 3, a = sw * (1 + (i % 7) * .1);
@@ -690,34 +752,36 @@ try {
       }
       pg.attributes.position.needsUpdate = true;
     }
-    // 2) caneca sólida aparece, chope enche, espuma cai
+    // 2) vidro aparece, chope enche, espuma sobe, copo sua
     const s = Math.max(0, t - LOAD);
-    pm.opacity = p < 1 ? 1 : Math.max(0, 1 - s / .7);
-    pts.visible = pm.opacity > 0;
-    glassM.opacity = Math.min(.24, s * .4); handleM.opacity = Math.min(.36, s * .6);
-    const fill = reduce ? 1 : ease(Math.min(Math.max((s - .2) / 1.3, 0), 1));
+    pm.opacity = p < 1 ? 1 : Math.max(0, 1 - s / .6); pts.visible = pm.opacity > 0;
+    const g = reduce ? 1 : clamp(s / .6);
+    glassM.opacity = .16 * g; fresM.uniforms.uO.value = g; if (logoM) logoM.opacity = .92 * clamp((s - .3) / .6 + (reduce ? 1 : 0));
+    const fill = reduce ? 1 : ease(clamp((s - .2) / 1.3));
     beer.scale.y = Math.max(.001, fill); beer.visible = fill > .01;
-    const fs = reduce ? 1 : back(Math.min(Math.max((s - 1.3) / .6, 0), 1));
-    foam.scale.setScalar(Math.max(.001, fs)); foam.position.y = 1.36 + (1 - Math.min(1, fs)) * 1.2;
-    if (!done && (reduce || s > 1.5)) { done = true; endIntro(); }
-    // bolhas sobem dentro do chope
-    const lvl = 2.7 * fill;
+    const fs = reduce ? 1 : ease(clamp((s - .9) / .9));
+    foam.scale.y = Math.max(.001, fs); foam.position.y = BASE + BH * fill; foam.visible = fs > .01;
+    dropM.opacity = .8 * (reduce ? 1 : clamp((s - 1.4) / 1));
+    if (!done && (reduce || s > 1.6)) { done = true; endIntro(); }
+    // bolhas
+    const lvl = BH * fill;
     bd.forEach((b, i) => {
-      if (!reduce) { b.y += b.v * .012; if (b.y > lvl) { b.y = 0; b.r = Math.random() * .95; } }
-      dummy.position.set(Math.cos(b.a) * b.r, -1.34 + Math.min(b.y, lvl), Math.sin(b.a) * b.r);
-      dummy.scale.setScalar(fill > .05 ? 1 : .001); dummy.updateMatrix(); bubs.setMatrixAt(i, dummy.matrix);
+      if (!reduce) { b.y += b.v * .011; if (b.y > lvl) b.y = 0; }
+      const k = b.y / BH;
+      dummy.position.set(b.x + Math.sin(b.w + b.y * 6) * .02, BASE + .03 + Math.min(b.y, lvl), b.z);
+      dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(fill > .05 ? .012 + k * .016 : .0001); dummy.updateMatrix(); bubs.setMatrixAt(i, dummy.matrix);
     });
     bubs.instanceMatrix.needsUpdate = true;
     // posição: centro na entrada, depois vai para a direita (desktop)
-    const go = done ? ease(Math.min(1, (s - 1.5) / 1.2 + (reduce ? 1 : 0))) : 0;
+    const go = done ? ease(Math.min(1, (s - 1.6) / 1.2 + (reduce ? 1 : 0))) : 0;
     const sc = Math.min(1, scrollY / innerHeight);
-    rig.position.x = (wide ? Math.min(halfW * .5, 4) : 0) * go;
     const ws = Math.min(.95, Math.max(.6, halfW / 6.5));
+    rig.position.x = (wide ? Math.min(halfW * .5, 4) : 0) * go;
     rig.position.y = (wide ? Math.min(-.1, topLim - 2 * ws) : .9) * go + sc * 1.5;
     rig.scale.setScalar((wide ? 1 - (1 - ws) * go : .78) * (1 - sc * .2));
     if (!drag) { vel *= .94; rotY += vel + (reduce ? 0 : .0035); }
     mug.rotation.y = rotY + sc * 2.5;
-    mug.rotation.x = .12 + Math.sin(t * .6) * .03 + sc * .4;
+    mug.rotation.x = .1 + Math.sin(t * .6) * .03 + sc * .4;
     mug.position.y = reduce ? 0 : Math.sin(t * 1.1) * .06;
     R.render(scene, cam);
   }
