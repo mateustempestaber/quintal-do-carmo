@@ -654,10 +654,11 @@ try {
   const pts = new T.Points(pg, pm); mug.add(pts);
 
   // tamanho e posição
-  let wide = true, halfW = 4;
+  let wide = true, halfW = 4, topLim = 1.5;
   function size() {
     const w = cv.clientWidth, h = cv.clientHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
     wide = w > 900; halfW = Math.tan(16 * Math.PI / 180) * 13 * cam.aspect;
+    topLim = (.5 - 320 / Math.max(h, 1)) * 2 * Math.tan(16 * Math.PI / 180) * 13; // abaixo do quadro Hoje
   }
   const ro = new ResizeObserver(size); ro.observe(cv); size();
 
@@ -711,8 +712,9 @@ try {
     const go = done ? ease(Math.min(1, (s - 1.5) / 1.2 + (reduce ? 1 : 0))) : 0;
     const sc = Math.min(1, scrollY / innerHeight);
     rig.position.x = (wide ? Math.min(halfW * .5, 4) : 0) * go;
-    rig.position.y = (wide ? -.1 : .9) * go + sc * 1.5;
-    rig.scale.setScalar((wide ? 1 : .78) * (1 - .25 * go * (wide ? 0 : 1)) * (1 - sc * .2));
+    const ws = Math.min(.95, Math.max(.6, halfW / 6.5));
+    rig.position.y = (wide ? Math.min(-.1, topLim - 2 * ws) : .9) * go + sc * 1.5;
+    rig.scale.setScalar((wide ? 1 - (1 - ws) * go : .78) * (1 - sc * .2));
     if (!drag) { vel *= .94; rotY += vel + (reduce ? 0 : .0035); }
     mug.rotation.y = rotY + sc * 2.5;
     mug.rotation.x = .12 + Math.sin(t * .6) * .03 + sc * .4;
