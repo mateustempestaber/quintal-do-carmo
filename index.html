@@ -161,6 +161,8 @@ body.intro{overflow:hidden}
 .sheet .row{display:flex;gap:10px;flex-wrap:wrap}
 
 /* horários e reserva */
+.aviso{margin:0;padding:12px 14px;border-radius:12px;border:1px solid rgba(91,211,172,.35);background:rgba(91,211,172,.06);font-size:14px;color:#cfe0da}
+.aviso b{color:var(--ink)}
 .hours{list-style:none;padding:0;margin:24px 0 0;border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .hours li{display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-top:1px solid var(--line);background:var(--card)}
 .hours li:first-child{border-top:0}
@@ -320,6 +322,7 @@ footer a:hover{color:var(--gold)}
           <label>Dia<input id="rDia" type="date" required></label>
         </div>
         <label>Horário<select id="rHora" disabled><option value="">Escolha o dia primeiro</option></select></label>
+        <p class="aviso" id="rAviso">Tolerância de <b>20 minutos</b>: se você não chegar até 20 minutos depois do horário combinado, a reserva é cancelada. Não tem taxa.</p>
         <div class="msg" id="rMsg" role="status"></div>
         <div class="row" style="display:flex;gap:10px;flex-wrap:wrap">
           <a class="btn gold" id="rEnviar" target="_blank" rel="noopener" aria-disabled="true">Enviar pelo WhatsApp</a>
@@ -564,9 +567,17 @@ const rPes = document.getElementById('rPes'), rDia = document.getElementById('rD
 rPes.innerHTML = Array.from({length:12}, (_, i) => '<option>' + (i + 1) + (i ? ' pessoas' : ' pessoa') + '</option>').join('') + '<option>Mais de 12</option>';
 rPes.selectedIndex = 1;
 const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-rDia.min = iso(now);
+const TOLERANCIA = 20; // minutos de atraso até a reserva ser cancelada (sem taxa)
+const maxDia = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 90);
+rDia.min = iso(now); rDia.max = iso(maxDia);
+// já começa no primeiro dia que ainda tem horário (hoje ou amanhã)
+const temHoraHoje = HORARIOS[dow].some(p => p[1] - 1 > hNow + .5);
+rDia.value = iso(temHoraHoje ? now : new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+const diaOk = () => rDia.value && rDia.value >= rDia.min && rDia.value <= rDia.max;
 function fillHoras() {
   if (!rDia.value) { rHora.disabled = true; rHora.innerHTML = '<option value="">Escolha o dia primeiro</option>'; return; }
+  if (!diaOk()) { rHora.disabled = true; rHora.innerHTML = '<option value="">Data inválida</option>'; rMsg.textContent = rDia.value < rDia.min ? 'Essa data já passou. Escolha a partir de hoje.' : 'Dá pra reservar com até 90 dias de antecedência.'; return; }
+  rMsg.textContent = '';
   const [y, m, d] = rDia.value.split('-').map(Number), dt = new Date(y, m - 1, d), today = rDia.value === iso(now);
   const opts = [];
   HORARIOS[dt.getDay()].forEach(p => { for (let t = p[0]; t <= p[1] - 1; t += .5) if (!today || t > hNow + .5) opts.push(t); });
@@ -574,16 +585,18 @@ function fillHoras() {
   rHora.innerHTML = opts.length ? opts.map(t => '<option value="' + t + '">' + fmtH(t) + '</option>').join('') : '<option value="">Sem horários neste dia</option>';
 }
 function upd() {
-  const ok = rNome.value.trim() && rDia.value && rHora.value;
+  const ok = rNome.value.trim() && diaOk() && rHora.value;
   rEnv.setAttribute('aria-disabled', String(!ok));
   if (!ok) { rEnv.removeAttribute('href'); return; }
   const [y, m, d] = rDia.value.split('-').map(Number), dt = new Date(y, m - 1, d);
-  const txt = 'Olá! Gostaria de reservar uma mesa no Quintal do Carmo.\nNome: ' + rNome.value.trim() + '\nPessoas: ' + rPes.value + '\nDia: ' + NOMES[dt.getDay()] + ', ' + pad(d) + '/' + pad(m) + '\nHorário: ' + fmtH(+rHora.value);
-  rEnv.href = waLink(txt); rMsg.textContent = '';
+  const txt = 'Olá! Gostaria de reservar uma mesa no Quintal do Carmo.\nNome: ' + rNome.value.trim() + '\nPessoas: ' + rPes.value + '\nDia: ' + NOMES[dt.getDay()] + ', ' + pad(d) + '/' + pad(m) + '/' + y + '\nHorário: ' + fmtH(+rHora.value) + '\n\nEstou ciente: se eu não chegar até ' + TOLERANCIA + ' minutos depois do horário, a reserva é cancelada (sem taxa).';
+  rEnv.href = waLink(txt);
 }
 rDia.addEventListener('change', () => { fillHoras(); upd(); });
+rDia.addEventListener('input', () => { fillHoras(); upd(); });
+fillHoras();
 [rNome, rPes, rHora].forEach(el => el.addEventListener('input', upd));
-rEnv.addEventListener('click', e => { if (rEnv.getAttribute('aria-disabled') === 'true') { e.preventDefault(); rMsg.textContent = 'Preencha nome, dia e horário para enviar.'; } else rMsg.textContent = 'Abrindo o WhatsApp. A reserva só vale depois que a gente confirmar.'; });
+rEnv.addEventListener('click', e => { if (rEnv.getAttribute('aria-disabled') === 'true') { e.preventDefault(); rMsg.textContent = !diaOk() ? (rDia.value && rDia.value < rDia.min ? 'Essa data já passou. Escolha a partir de hoje.' : 'Escolha um dia válido.') : 'Preencha nome, dia e horário para enviar.'; } else rMsg.textContent = 'Abrindo o WhatsApp. A reserva só vale depois que a gente confirmar.'; });
 document.getElementById('res').addEventListener('submit', e => e.preventDefault());
 upd();
 
